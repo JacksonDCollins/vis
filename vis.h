@@ -705,6 +705,9 @@ enum VisMotion {
 	VIS_MOVE_BYTE,
 	VIS_MOVE_BYTE_LEFT,
 	VIS_MOVE_BYTE_RIGHT,
+	VIS_JUMPHIST_NEXT,
+	VIS_JUMPHIST_PREV,
+	VIS_JUMPHIST_SHOW,
 	VIS_MOVE_INVALID, /* denotes the end of the "real" motions */
 	/* pseudo motions: keep them at the end to save space in array definition */
 	VIS_MOVE_TOTILL_REPEAT,

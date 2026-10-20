@@ -79,6 +79,9 @@ static const KeyBinding bindings_motions[] = {
 	{ "t",                  ACTION(TILL_LINE_RIGHT)                     },
 	{ "W",                  ACTION(CURSOR_LONGWORD_START_NEXT)          },
 	{ "w",                  ACTION(CURSOR_WORD_START_NEXT)              },
+	{ "j<",                 ACTION(JUMPHIST_PREV)                       },
+	{ "j>",                 ACTION(JUMPHIST_NEXT)                       },
+	{ "jl",                 ACTION(JUMPHIST_SHOW)                       },
 	{ 0 /* empty last element, array terminator */                      },
 };
 

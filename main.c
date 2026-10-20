@@ -36,6 +36,9 @@ static Vis vis[1];
 	X(ka_jumplist,                        JUMPLIST_NEXT,                    .i = +1,                                  "vis-jumplist-next",                   "Go to newer cursor position in jump list") \
 	X(ka_jumplist,                        JUMPLIST_PREV,                    .i = -1,                                  "vis-jumplist-prev",                   "Go to older cursor position in jump list") \
 	X(ka_jumplist,                        JUMPLIST_SAVE,                    .i = 0,                                   "vis-jumplist-save",                   "Save current selections in jump list") \
+    X(ka_jumphist,                        JUMPHIST_NEXT,                    .i = VIS_JUMPHIST_NEXT,                   "vis-jump_history-next",               "Advance to the next location in the jump history") \
+    X(ka_jumphist,                        JUMPHIST_PREV,                    .i = VIS_JUMPHIST_PREV,                   "vis-jump_history-prev",               "Return to the previous location in the jump history") \
+    X(ka_jumphist,                        JUMPHIST_SHOW,                    .i = VIS_JUMPHIST_SHOW,                   "vis-jump_history-show",               "Show the current jump history locations") \
 	X(ka_later,                           LATER,                            0,                                        "vis-later",                           "Goto newer text state") \
 	X(ka_macro_record,                    MACRO_RECORD,                     0,                                        "vis-macro-record",                    "Record macro into given register") \
 	X(ka_macro_replay,                    MACRO_REPLAY,                     0,                                        "vis-macro-replay",                    "Replay macro, execute the content of the given register") \
@@ -1314,6 +1317,12 @@ static KEY_ACTION_FN(ka_percent)
 static KEY_ACTION_FN(ka_jumplist)
 {
 	vis_jumplist(vis, arg->i);
+	return keys;
+}
+
+static KEY_ACTION_FN(ka_jumphist)
+{
+	vis_jumphist(vis, arg->i);
 	return keys;
 }
 

@@ -1,4 +1,11 @@
+#include "buffer.h"
+#include "text.h"
+#include "util.h"
+#include "view.h"
 #include "vis-core.h"
+#include "vis.h"
+#include <stddef.h>
+#include <stdio.h>
 
 static DA_COMPARE_FN(ranges_comparator)
 {
@@ -131,6 +138,116 @@ void vis_jumplist(Vis *vis, int advance)
 	}
 
 	da_release(&cur);
+}
+
+void vis_jumphist_advance(Vis *vis, int advance) {
+
+}
+
+void vis_jumphist_insert(Vis *vis, int index) {
+	Win *win = vis->win;
+	if (!win || index < 0 || (size_t)index > win->jumphist_count) return;
+	assert(win->jumphist_count <= VIS_JUMPHIST_MAX_COUNT);
+	assert(win->jumphist_start < VIS_JUMPHIST_MAX_COUNT);
+
+	Mark cursor = text_mark_set(win->file->text, view_cursor_get(&win->view));
+	if (cursor == EMARK) return;
+
+	if (win->jumphist_count == VIS_JUMPHIST_MAX_COUNT) {
+		win->jumphist_start = (win->jumphist_start + 1) % VIS_JUMPHIST_MAX_COUNT;
+		win->jumphist_count--;
+		/* Evicting the oldest entry moves later logical indices left. */
+		if (index > 0) index--;
+		if (win->jumphist_index > 0)
+			win->jumphist_index--;
+	}
+
+	for (size_t i = win->jumphist_count; i > (size_t)index; i--) {
+		size_t dst = (win->jumphist_start + i) % VIS_JUMPHIST_MAX_COUNT;
+		size_t src = (win->jumphist_start + i - 1) % VIS_JUMPHIST_MAX_COUNT;
+		win->jumps[dst] = win->jumps[src];
+	}
+	if (win->jumphist_count > 0 && (size_t)index <= win->jumphist_index)
+		win->jumphist_index++;
+
+	size_t slot = (win->jumphist_start + (size_t)index) % VIS_JUMPHIST_MAX_COUNT;
+	win->jumps[slot] = (JumpHistory) {
+		.file = win->file,
+		.cursor = cursor,
+	};
+	win->jumphist_count++;
+}
+
+void vis_jumphist_show(Vis *vis) {
+	Win *win = vis->win;
+
+	Buffer lines = {0};
+	for (size_t i =0; i < win->jumphist_count; i++) {
+		size_t slot = (win->jumphist_start + i) % VIS_JUMPHIST_MAX_COUNT;
+		JumpHistory jump = win->jumps[slot];
+		if (!jump.file) continue;
+		size_t pos = text_mark_get(jump.file->text, jump.cursor);
+		if (pos == EPOS) continue;
+		size_t line = text_lineno_by_pos(jump.file->text, pos);
+		int column = text_line_char_get(jump.file->text, pos);
+
+		if (!vis_buffer_appendf(&lines, "%c [%zu] %.*s %zu:%d\n",
+	i == win->jumphist_index ? '*' : ' ',
+	i,
+	jump.file->name.length ? (int)jump.file->name.length: 9,
+	jump.file->name.length ? (char *)jump.file->name.data: "[No Name]",
+	line,
+	column
+					)){
+			buffer_release(&lines);
+			return;
+		}
+
+	}
+
+	vis_buffer_terminate(&lines);
+	vis_message_show(vis, buffer_content0(&lines));
+	buffer_release(&lines);
+}
+
+void vis_jumphist(Vis *vis, enum VisMotion motion)
+{
+
+	if (motion == VIS_JUMPHIST_PREV)
+		vis_jumphist_advance(vis, -1);
+	else if (motion == VIS_JUMPHIST_NEXT)
+		vis_jumphist_advance(vis, 1);
+	else if (motion == VIS_JUMPHIST_SHOW)
+		vis_jumphist_show(vis);
+
+	// Win *win = vis->win;
+	// Text *txt = win->file->text;
+	//
+	// Buffer jumps = {0};
+	// for (size_t i = 0; i < VIS_MARK_SET_LRU_COUNT; i++) {
+	// 	size_t cursor = (win->mark_set_lru_cursor + i) % VIS_MARK_SET_LRU_COUNT;
+	// 	SelectionRegionList *next = win->mark_set_lru_regions + cursor;
+	// 	if (next->count) {
+	// 		for (VisDACount j =0; j< next->count; j++) {
+	//
+	// 			size_t pos = text_mark_get(txt, next->data[j].cursor);
+	// 			if (pos == EPOS) continue;
+	// 			size_t line = text_lineno_by_pos(txt,pos);
+	// 			int column = text_line_char_get(txt,pos) + 1;
+	// 			char file_name[256]	= {0};
+	// 			snprintf(file_name, sizeof(file_name), "%.*s", win->file->name.length ? (int)win->file->name.length : 9, (int)win->file->name.length ? (char *)win->file->name.data : "[No Name]");
+	// 			if (!vis_buffer_appendf(&jumps, "%s [%zu] %zu:%d\n",
+	// 										file_name, i, line, column
+	// 						)){
+	// 				buffer_release(&jumps);
+	// 				return;
+	// 			}
+	// 		}
+	// 	}
+	// }
+	// vis_buffer_terminate(&jumps);
+	// vis_message_show(vis, buffer_content0(&jumps));
+	// buffer_release(&jumps);
 }
 
 enum VisMark vis_mark_from(Vis *vis, char mark) {

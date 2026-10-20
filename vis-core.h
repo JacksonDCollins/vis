@@ -8,6 +8,7 @@
 #include "vis-lua.h"
 #include "text.h"
 #include "map.h"
+#include <stddef.h>
 
 /* a mode contains a set of key bindings which are currently valid.
  *
@@ -161,6 +162,11 @@ struct File { /* shared state among windows displaying the same file */
 	SelectionRegionList marks[VIS_MARK_INVALID]; /* marks which are shared across windows */
 };
 
+typedef struct  {
+	Mark cursor;
+	File *file;
+} JumpHistory;
+
 struct Win {
 	int width, height;      /* window dimension including status bar */
 	int x, y;               /* window position */
@@ -189,7 +195,15 @@ struct Win {
 	size_t              mark_set_lru_cursor;
 	SelectionRegionList mark_set_lru_regions[VIS_MARK_SET_LRU_COUNT];
 	enum VisMode        mark_set_lru_modes[VIS_MARK_SET_LRU_COUNT];
+
+
+	#define VIS_JUMPHIST_MAX_COUNT (1024)
+	size_t jumphist_index; /* Logical navigation index, oldest entry is zero. */
+	size_t jumphist_count;
+	size_t jumphist_start; /* Array slot containing the oldest entry. */
+	JumpHistory jumps[VIS_JUMPHIST_MAX_COUNT];
 };
+
 
 struct Vis {
 	File *files;                         /* all files currently managed by this editor instance */
