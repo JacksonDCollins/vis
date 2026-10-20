@@ -120,6 +120,12 @@ static bool cmd_read(Vis*, Win*, Command*, const char *argv[], Selection*, Filer
 static bool cmd_edit(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
 static bool vis_cmd_quit(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
 static bool cmd_cd(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
+/* Retained-buffer operations are defined with file ownership in vis.c. */
+static bool vis_buffer_switch(Vis*, Win*, File*);
+static bool vis_buffer_delete(Vis*, Win*, bool);
+static bool cmd_buffers(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
+static bool cmd_buffer_next(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
+static bool cmd_buffer_delete(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
 /* vi(m) commands */
 static bool cmd_set(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
 static bool cmd_open(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
@@ -211,6 +217,18 @@ static const CommandDef vis_sam_command_definitions[] = {
 	},
 	/* vi(m) related commands */
 	{
+		str8_comp("buffers"), VIS_HELP("List retained buffers (+ modified, * current)")
+		CMD_ONCE|CMD_ADDRESS_NONE, 0, cmd_buffers
+	}, {
+		str8_comp("bnext"), VIS_HELP("Display the next buffer in this split")
+		CMD_ONCE|CMD_ADDRESS_NONE|CMD_DESTRUCTIVE, 0, cmd_buffer_next
+	}, {
+		str8_comp("bprev"), VIS_HELP("Display the previous buffer in this split")
+		CMD_ONCE|CMD_ADDRESS_NONE|CMD_DESTRUCTIVE, 0, cmd_buffer_next
+	}, {
+		str8_comp("bdelete"), VIS_HELP("Delete current buffer; ! discards unsaved changes")
+		CMD_FORCE|CMD_ONCE|CMD_ADDRESS_NONE|CMD_DESTRUCTIVE, 0, cmd_buffer_delete
+	}, {
 		str8_comp("help"), VIS_HELP("Show this help")
 		CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE, 0, cmd_help
 	}, {

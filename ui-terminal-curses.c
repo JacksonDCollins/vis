@@ -217,6 +217,7 @@ static void ui_term_backend_blit(Ui *tui) {
 			style++;
 		}
 	}
+	vis_terminal_draw(tui);
 	move(tui->cur_row, tui->cur_col);
 	wnoutrefresh(stdscr);
 	if (tui->doupdate)

@@ -5,7 +5,7 @@ EXECUTABLES = $(ELF) vis-clipboard vis-complete vis-open
 
 MANUALS = $(EXECUTABLES:=.1)
 
-DOCUMENTATION = LICENSE README.md
+DOCUMENTATION = LICENSE README.md FORK.md
 
 VERSION = $(shell git describe --always --dirty 2>/dev/null || echo "v0.9-git")
 API     = $(shell git rev-list --count HEAD 2>/dev/null || echo "0")
@@ -18,10 +18,14 @@ CFLAGS_VIS = $(CFLAGS_AUTO) $(CFLAGS_TERMKEY) $(CFLAGS_CURSES) $(CFLAGS_ACL) \
 	$(CFLAGS_SELINUX) $(CFLAGS_TRE) $(CFLAGS_LUA) $(CFLAGS_LPEG) $(CFLAGS_STD) \
 	-DVIS_EXPORT=static
 
+CFLAGS_VIS += -D_GNU_SOURCE $(shell pkg-config --cflags vterm)
+
 CFLAGS_VIS += -DVIS_PATH=\"${SHAREPREFIX}/vis\"
 
 LDFLAGS_VIS = $(LDFLAGS_AUTO) $(LDFLAGS_CURSES) $(LDFLAGS_ACL) $(LDFLAGS_SELINUX) \
               $(LDFLAGS_TRE) $(LDFLAGS_LUA) $(LDFLAGS_LPEG) $(LDFLAGS_STD)
+
+LDFLAGS_VIS += $(shell pkg-config --libs vterm) -lutil
 
 STRIP?=strip
 TAR?=tar

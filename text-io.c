@@ -404,6 +404,7 @@ static bool text_save_commit_inplace(TextSave *ctx) {
 }
 
 bool text_save_begin(TextSave *ctx) {
+	if (ctx->txt->readonly) { errno = EROFS; return false; }
 	enum TextSaveMethod type = ctx->method;
 	errno = 0;
 	if ((type == TEXT_SAVE_AUTO || type == TEXT_SAVE_ATOMIC) && text_save_begin_atomic(ctx)) {

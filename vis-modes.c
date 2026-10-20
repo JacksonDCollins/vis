@@ -74,6 +74,14 @@ Mode *mode_get(Vis *vis, enum VisMode mode) {
 }
 
 void mode_set(Vis *vis, Mode *new_mode) {
+	if (vis->win && vis->win->file->terminal &&
+	    (new_mode->id == VIS_MODE_INSERT || new_mode->id == VIS_MODE_REPLACE))
+		new_mode = &vis_modes[VIS_MODE_TERMINAL];
+	if (new_mode->id == VIS_MODE_TERMINAL &&
+	    (!vis->win || !vis_terminal_running(vis->win->file))) {
+		vis_info_show(vis, "No running terminal in this window");
+		new_mode = &vis_modes[VIS_MODE_NORMAL];
+	}
 	if (vis->mode == new_mode)
 		return;
 	if (vis->mode->leave)
@@ -238,6 +246,15 @@ static void vis_mode_insert_idle(Vis *vis) {
 }
 
 static Mode vis_modes[] = {
+	[VIS_MODE_TERMINAL] = {
+		.id = VIS_MODE_TERMINAL,
+		.name = "TERMINAL",
+		.status = "TERMINAL",
+		.help = "",
+		.input = vis_terminal_input,
+		.enter = vis_terminal_enter,
+		.leave = vis_terminal_leave,
+	},
 	[VIS_MODE_OPERATOR_PENDING] = {
 		.id = VIS_MODE_OPERATOR_PENDING,
 		.name = "OPERATOR-PENDING",

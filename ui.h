@@ -137,6 +137,9 @@ typedef struct {
 
 // TODO(rnp): flatten UI into vis, only one exists and it must be in a vis context
 typedef struct {
+	struct VisTerminal *terminal; /* terminal buffers, including hidden ones */
+	struct termios terminal_saved;
+	bool terminal_raw;
 	TermKey termkey;           /* libtermkey instance to handle keyboard input (stdin or /dev/tty) */
 	VisCellBuffer cell_buffer; /* 2D grid of cells, at least as large as current terminal size */
 	int width, height;         /* terminal dimensions available for all windows */
@@ -177,6 +180,7 @@ VIS_INTERNAL __attribute__((noreturn)) void ui_die(Ui *, const char *, va_list);
 VIS_INTERNAL bool ui_init(Ui *);
 VIS_INTERNAL void ui_arrange(Vis *, enum UiLayout);
 VIS_INTERNAL void ui_draw(Vis *);
+VIS_INTERNAL void vis_terminal_draw(Ui *);
 VIS_INTERNAL void vis_ui_info_hide(Ui *);
 VIS_INTERNAL void ui_info_show(Ui *, const char *, va_list);
 VIS_INTERNAL void ui_resize(Ui*);

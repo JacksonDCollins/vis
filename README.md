@@ -1,5 +1,9 @@
 # Vis - Combining Modal Editing with Structural Regular Expressions
 
+This is the [JacksonDCollins/vis](https://github.com/JacksonDCollins/vis)
+retained-buffer/terminal-mode fork. See [FORK.md](FORK.md)
+for its changes, build requirements, API and maintenance notes.
+
 [![Development discussion](https://img.shields.io/badge/email-~martanne%2Fdevel-black?logo=sourcehut)](https://lists.sr.ht/~martanne/devel)
 [![builds.sr.ht status](https://builds.sr.ht/~martanne/vis/commits.svg)](https://builds.sr.ht/~martanne/vis/commits?)
 [![Coverity Scan Build Status](https://scan.coverity.com/projects/3939/badge.svg)](https://scan.coverity.com/projects/3939)

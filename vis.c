@@ -45,12 +45,11 @@ vis_file_set_name_relative(File *file, str8 directory)
 }
 
 VIS_INTERNAL void
-vis_file_free(Vis *vis, File *file)
+vis_file_destroy(Vis *vis, File *file, bool notify)
 {
-	if (file && file->refcount > 1) {
-		file->refcount--;
-	} else if (file) {
-		if (!file->internal)
+	if (file) {
+		vis_terminal_destroy(vis, file);
+		if (notify && !file->internal)
 			vis_event_emit(vis, VIS_EVENT_FILE_CLOSE, file);
 
 		if (file->prev) file->prev->next = file->next;
@@ -67,6 +66,21 @@ vis_file_free(Vis *vis, File *file)
 	}
 }
 
+VIS_INTERNAL void
+vis_file_free(Vis *vis, File *file)
+{
+	if (!file)
+		return;
+	if (file->refcount > 0)
+		file->refcount--;
+	if (file->refcount > 0)
+		return;
+	/* User buffers, including unnamed buffers' redo history, outlive their views. */
+	if (!file->internal && !file->truncated)
+		return;
+	vis_file_destroy(vis, file, true);
+}
+
 typedef enum {
 	VisFileNewFlag_Internal   = (1 << 0),
 	VisFileNewFlag_ForceNew   = (1 << 1),
@@ -80,11 +94,12 @@ vis_file_new(Vis *vis, const char *name, VisFileNewFlags flags)
 
 	str8 filepath = name ? vis_absolute_path(name) : (str8){0};
 	if (filepath.length > 0 && (flags & VisFileNewFlag_ForceNew) == 0) {
-		struct stat new;
-		if (stat((char *)filepath.data, &new) == 0 || errno == ENOENT) {
+		struct stat new = {0};
+		bool exists = stat((char *)filepath.data, &new) == 0;
+		if (exists || errno == ENOENT) {
 			for (File *file = vis->files; file; file = file->next) {
 				if (!file->internal && (str8_equal(file->filepath, filepath) ||
-				    (file->stat.st_dev == new.st_dev && file->stat.st_ino == new.st_ino)))
+				    (exists && file->stat.st_dev == new.st_dev && file->stat.st_ino == new.st_ino)))
 				{
 					result = file;
 					break;
@@ -334,6 +349,8 @@ void vis_window_invalidate(Win *win) {
 VIS_EXPORT void
 vis_window_focus(Vis *vis, Win *new)
 {
+	if (vis->win != new && vis->mode->id == VIS_MODE_TERMINAL)
+		vis_mode_switch(vis, VIS_MODE_NORMAL);
 	if (vis->win) vis->win->view.need_update = true;
 	new->view.need_update = true;
 	vis->win = new;
@@ -362,6 +379,9 @@ Win *window_new_file(Vis *vis, File *file, enum UiOption options) {
 
 	file->refcount++;
 	win_options_set(win, win->options);
+	size_t cursor = text_mark_get(file->text, file->last_cursor);
+	if (cursor != EPOS)
+		view_cursors_to(win->view.selection, cursor);
 
 	vis_window_focus(vis, win);
 
@@ -374,13 +394,15 @@ Win *window_new_file(Vis *vis, File *file, enum UiOption options) {
 VIS_EXPORT bool
 vis_window_file_reload(Vis *vis, Win *win)
 {
+	if (win->file->refcount != 1)
+		return false;
 	bool result = false;
 	str8 path = win->file->filepath;
 	if (path.length > 0) {
 		File *file = vis_file_new(vis, (char *)path.data, VisFileNewFlag_ForceNew);
 		result = file != 0;
 		if (result) {
-			vis_file_free(vis, win->file);
+			vis_file_destroy(vis, win->file, true);
 			win->file = file;
 			view_reload(&win->view, file->text);
 		}
@@ -391,13 +413,8 @@ vis_window_file_reload(Vis *vis, Win *win)
 VIS_EXPORT bool
 vis_window_file_change(Vis *vis, Win *win, const char *filename)
 {
-	File *file = vis_file_new(vis, filename, 0);
-	if (file) {
-		vis_file_free(vis, win->file);
-		win->file = file;
-		view_reload(&win->view, file->text);
-	}
-	return file != 0;
+	File *file = vis_file_new(vis, filename, VisFileNewFlag_NoRefcount);
+	return file && vis_buffer_switch(vis, win, file);
 }
 
 bool vis_window_split(Win *original) {
@@ -510,7 +527,10 @@ void vis_window_close(Win *win) {
 	if (!win)
 		return;
 	Vis *vis = win->vis;
+	if (vis->win == win && vis->mode->id == VIS_MODE_TERMINAL)
+		vis_mode_switch(vis, VIS_MODE_NORMAL);
 	vis_event_emit(vis, VIS_EVENT_WIN_CLOSE, win);
+	win->file->last_cursor = text_mark_set(win->file->text, view_cursor_get(&win->view));
 	vis_file_free(vis, win->file);
 	if (win->prev)
 		win->prev->next = win->next;
@@ -527,6 +547,55 @@ void vis_window_close(Win *win) {
 		vis_window_focus(vis, vis->win);
 	vis_draw(vis);
 }
+
+static bool vis_buffer_switch(Vis *vis, Win *win, File *file)
+{
+	if (win->file == file)
+		return true;
+	if (win == vis->win && vis->mode->id == VIS_MODE_TERMINAL)
+		vis_mode_switch(vis, VIS_MODE_NORMAL);
+	File *old = win->file;
+	old->last_cursor = text_mark_set(old->text, view_cursor_get(&win->view));
+	file->refcount++;
+	win->file = file;
+	view_reload(&win->view, file->text);
+	vis_file_free(vis, old);
+	size_t cursor = text_mark_get(file->text, file->last_cursor);
+	if (cursor != EPOS)
+		view_cursors_to(win->view.selection, cursor);
+	/* Reinitialize syntax/plugins without invalidating existing window references. */
+	Win *focused = vis->win;
+	vis_window_focus(vis, win);
+	vis_event_emit(vis, VIS_EVENT_WIN_OPEN, win);
+	if (focused && focused != win)
+		vis_window_focus(vis, focused);
+	vis_redraw(vis);
+	return true;
+}
+
+static bool vis_buffer_delete(Vis *vis, Win *win, bool force)
+{
+	File *old = win->file;
+	if (old->internal || old->refcount > 1) {
+		vis_info_show(vis, "Buffer is internal or displayed in another split");
+		return false;
+	}
+	if (!force && (text_modified(old->text) || vis_terminal_running(old))) {
+		vis_info_show(vis, "No write since last change (use :bdelete! to discard)");
+		return false;
+	}
+	File *next = vis->files;
+	while (next && (next == old || next->internal))
+		next = next->next;
+	if (!next)
+		next = vis_file_new(vis, NULL, VisFileNewFlag_NoRefcount);
+	if (!next || !vis_buffer_switch(vis, win, next))
+		return false;
+	vis_file_destroy(vis, old, true);
+	return true;
+}
+
+#include "vis-terminal.c"
 
 bool vis_init(Vis *vis)
 {
@@ -586,6 +655,11 @@ void vis_cleanup(Vis *vis)
 	while (vis->windows)
 		vis_window_close(vis->windows);
 	vis_process_waitall(vis);
+	for (File *file = vis->files, *next; file; file = next) {
+		next = file->next;
+		if (!file->internal)
+			vis_file_destroy(vis, file, true);
+	}
 
 	// NOTE: it is possible for a plugin to call a lua function
 	// such as vis:message() in QUIT which requires the existence
@@ -593,8 +667,8 @@ void vis_cleanup(Vis *vis)
 	// the release of those files.
 	vis_event_emit(vis, VIS_EVENT_QUIT);
 
-	vis_file_free(vis, vis->prompt_file);
-	vis_file_free(vis, vis->error_file);
+	while (vis->files)
+		vis_file_destroy(vis, vis->files, false);
 
 	for (int i = 0; i < LENGTH(vis->registers); i++) {
 		for (VisDACount j = 0; j < vis->registers[i].count; j++)
@@ -696,6 +770,13 @@ void vis_do(Vis *vis) {
 	Text *txt = file->text;
 	View *view = &win->view;
 	Action *a = &vis->action;
+	if (file->terminal && a->op && a->op != &vis_operators[VIS_OP_YANK] &&
+	    a->op != &vis_operators[VIS_OP_MODESWITCH]) {
+		vis_info_show(vis, "Terminal screen is read-only");
+		action_reset(a);
+		vis_mode_switch(vis, VIS_MODE_NORMAL);
+		return;
+	}
 
 	int count = MAX(a->count, 1);
 	if (a->op == &vis_operators[VIS_OP_MODESWITCH])
@@ -1199,6 +1280,7 @@ static const char *getkey(Vis *vis) {
 		return 0;
 	vis_ui_info_hide(&vis->ui);
 	bool use_keymap = vis->mode->id != VIS_MODE_INSERT &&
+	                  vis->mode->id != VIS_MODE_TERMINAL &&
 	                  vis->mode->id != VIS_MODE_REPLACE &&
 	                  !vis->keymap_disabled;
 	vis->keymap_disabled = false;
@@ -1271,7 +1353,7 @@ int vis_run(Vis *vis) {
 
 	vis_event_emit(vis, VIS_EVENT_START);
 
-	struct timespec idle = { .tv_nsec = 0 }, *timeout = NULL;
+	struct timespec idle = {0}, last_input = {0}, *timeout = NULL;
 
 	sigset_t emptyset;
 	sigemptyset(&emptyset);
@@ -1281,7 +1363,8 @@ int vis_run(Vis *vis) {
 	sigsetjmp(vis->sigbus_jmpbuf, 1);
 
 	while (vis->running) {
-		fd_set fds;
+		fd_set fds, writes;
+		FD_ZERO(&writes);
 		FD_ZERO(&fds);
 		FD_SET(STDIN_FILENO, &fds);
 
@@ -1313,6 +1396,7 @@ int vis_run(Vis *vis) {
 
 		if (vis->resume) {
 			ui_terminal_resume(&vis->ui);
+			if (vis->mode->id == VIS_MODE_TERMINAL) vis_terminal_enter(vis, NULL);
 			vis->resume = false;
 		}
 
@@ -1321,10 +1405,22 @@ int vis_run(Vis *vis) {
 			vis->need_resize = false;
 		}
 
+		int maxfd = vis_terminal_before_tick(vis, &fds, &writes, vis_process_before_tick(&fds));
 		ui_draw(vis);
-		idle.tv_sec = vis->mode->idle_timeout;
-		int r = pselect(vis_process_before_tick(&fds) + 1, &fds, NULL, NULL,
-		                timeout, &emptyset);
+		if (!vis->mode->idle) timeout = NULL;
+		if (timeout) {
+			struct timespec now;
+			clock_gettime(CLOCK_MONOTONIC, &now);
+			idle.tv_sec = last_input.tv_sec + vis->mode->idle_timeout - now.tv_sec;
+			idle.tv_nsec = last_input.tv_nsec - now.tv_nsec;
+			if (idle.tv_nsec < 0) { idle.tv_sec--; idle.tv_nsec += 1000000000; }
+			if (idle.tv_sec < 0) idle = (struct timespec){0};
+		}
+		struct timespec terminal_timeout = {.tv_nsec = 20000000};
+		struct timespec *wait = timeout;
+		if (vis_terminal_active(vis) && (!wait || wait->tv_sec || wait->tv_nsec > 20000000))
+			wait = &terminal_timeout;
+		int r = pselect(maxfd + 1, &fds, &writes, NULL, wait, &emptyset);
 		if (r == -1 && errno == EINTR)
 			continue;
 
@@ -1333,11 +1429,14 @@ int vis_run(Vis *vis) {
 			vis_die(vis, "Error in mainloop: %s\n", strerror(errno));
 		}
 		vis_process_tick(vis, &fds);
+		vis_terminal_tick(vis, &fds, &writes);
 
 		if (!FD_ISSET(STDIN_FILENO, &fds)) {
-			if (vis->mode->idle)
+			/* PTY/LSP readiness is not an editor-input idle timeout. */
+			if (r == 0 && wait == timeout && timeout && vis->mode->idle) {
 				vis->mode->idle(vis);
-			timeout = NULL;
+				timeout = NULL;
+			}
 			continue;
 		}
 
@@ -1347,8 +1446,10 @@ int vis_run(Vis *vis) {
 		while ((key = getkey(vis)))
 			vis_keys_push(vis, str8_from_c_str(key), 0, true);
 
-		if (vis->mode->idle)
+		if (vis->mode->idle) {
+			clock_gettime(CLOCK_MONOTONIC, &last_input);
 			timeout = &idle;
+		}
 	}
 	return vis->exit_status;
 }

@@ -422,6 +422,10 @@ local function Detect(file)
 end
 
 vis.events.subscribe(vis.events.WIN_OPEN, function(win)
+	if win.file.terminal then
+		win:set_syntax(nil)
+		return
+	end
 	local syntax = Detect(win.file) -- syntax/lexer/filetype
 	local filetype = rawget(filetypes, syntax) -- avoid backwards compatibility mt
 	if filetype then

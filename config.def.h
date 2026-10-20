@@ -308,6 +308,11 @@ static const KeyBinding bindings_insert[] = {
 	{ 0 /* empty last element, array terminator */                      },
 };
 
+static const KeyBinding bindings_terminal[] = {
+	{ "<C-\\><C-n>", ACTION(MODE_NORMAL) },
+	{ 0 },
+};
+
 static const KeyBinding bindings_replace[] = {
 	{ 0 /* empty last element, array terminator */                      },
 };
@@ -315,6 +320,7 @@ static const KeyBinding bindings_replace[] = {
 /* For each mode we list a all key bindings, if a key is bound in more than
  * one array the first definition is used and further ones are ignored. */
 static const KeyBinding **default_bindings[] = {
+	[VIS_MODE_TERMINAL] = (const KeyBinding*[]){ bindings_terminal, NULL },
 	[VIS_MODE_OPERATOR_PENDING] = (const KeyBinding*[]){
 		bindings_operators,
 		bindings_textobjects,

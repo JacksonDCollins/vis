@@ -1397,6 +1397,56 @@ static int exit_func(lua_State *L) {
  * @treturn string stdout the data written to stdout
  * @treturn string stderr the data written to stderr
  */
+/* Return immediately with a terminal File; completion runs on the editor loop. */
+static int terminal_func(lua_State *L) {
+	Vis *vis = obj_ref_check(L, 1, "vis");
+	size_t len;
+	const char *command = luaL_checklstring(L, 2, &len);
+	luaL_argcheck(L, !memchr(command, '\0', len), 2, "command contains NUL");
+	if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TBOOLEAN);
+	bool capture = lua_toboolean(L, 3);
+	int ref = LUA_NOREF;
+	if (!lua_isnoneornil(L, 4)) {
+		luaL_checktype(L, 4, LUA_TFUNCTION);
+		lua_pushvalue(L, 4);
+		ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	} else {
+		luaL_argcheck(L, !capture, 4, "stdout capture requires an exit callback");
+	}
+	File *file = vis_terminal_start(vis, command, capture, ref);
+	if (!file) {
+		luaL_unref(L, LUA_REGISTRYINDEX, ref);
+		return luaL_error(L, "could not start terminal");
+	}
+	obj_ref_new(L, file, VIS_LUA_TYPE_FILE);
+	return 1;
+}
+
+static int terminal_send_func(lua_State *L) {
+	Vis *vis = obj_ref_check(L, 1, "vis");
+	const char *keys = luaL_checkstring(L, 2);
+	while (*keys) {
+		const char *next = vis_keys_next(vis, keys);
+		if (!next) break;
+		vis_terminal_input(vis, keys, next - keys);
+		keys = next;
+	}
+	return 0;
+}
+
+static bool vis_lua_terminal_exit(Vis *vis, File *file, int ref, int status, Buffer *output) {
+	lua_State *L = vis->lua;
+	int top = lua_gettop(L);
+	lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+	luaL_unref(L, LUA_REGISTRYINDEX, ref);
+	lua_pushinteger(L, status);
+	lua_pushlstring(L, output->data ? output->data : "", output->length);
+	obj_ref_new(L, file, VIS_LUA_TYPE_FILE);
+	bool discard = pcall(vis, L, 3, 1) == LUA_OK && lua_toboolean(L, -1);
+	lua_settop(L, top);
+	return discard;
+}
+
 static int pipe_func(lua_State *L) {
 	Vis *vis = obj_ref_check(L, 1, "vis");
 	int cmd_idx = 4;
@@ -1687,6 +1737,8 @@ static const struct luaL_Reg vis_lua[] = {
 	{ "action_register", action_register },
 	{ "exit", exit_func },
 	{ "pipe", pipe_func },
+	{ "terminal", terminal_func },
+	{ "terminal_send", terminal_send_func },
 	{ "redraw", redraw },
 	{ "communicate", communicate_func },
 	{ "__index", vis_index },
@@ -2036,11 +2088,13 @@ static int window_newindex(lua_State *L) {
 			}
 			lua_pop(L, 1);
 			return result;
-		} else if (strcmp(key, "file") == 0 && lua_isstring(L, 3)) {
-			const char* filename = lua_tostring(L, 3);
-			if (!vis_window_file_change(win->vis, win, filename)) {
-				return luaL_argerror(L, 3, "failed to open");
-			}
+		} else if (strcmp(key, "file") == 0) {
+			bool ok;
+			if (lua_isstring(L, 3))
+				ok = vis_window_file_change(win->vis, win, lua_tostring(L, 3));
+			else
+				ok = vis_buffer_switch(win->vis, win, obj_ref_check(L, 3, VIS_LUA_TYPE_FILE));
+			if (!ok) return luaL_argerror(L, 3, "failed to open");
 			return 0;
 		}
 	}
@@ -2564,6 +2618,10 @@ static int file_index(lua_State *L) {
 
 	if (lua_isstring(L, 2)) {
 		const char *key = lua_tostring(L, 2);
+		if (strcmp(key, "terminal") == 0) {
+			lua_pushboolean(L, file->terminal != NULL);
+			return 1;
+		}
 		if (strcmp(key, "name") == 0) {
 			int result = file->name.length > 0;
 			if (result) lua_pushlstring(L, (char *)file->name.data, file->name.length);
@@ -3471,6 +3529,7 @@ static void vis_lua_init(Vis *vis)
 			{VIS_MODE_VISUAL_LINE,      "VISUAL_LINE"     },
 			{VIS_MODE_INSERT,           "INSERT"          },
 			{VIS_MODE_REPLACE,          "REPLACE"         },
+			{VIS_MODE_TERMINAL,         "TERMINAL"        },
 		};
 		for (size_t i = 0; i < countof(modes); i++) {
 			lua_pushinteger(L, modes[i].id);

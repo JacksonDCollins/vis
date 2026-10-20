@@ -1,5 +1,8 @@
 /config.h
 /config.mk
+/src/
+/pkg/
+/*.pkg.tar.*
 /dependency
 /vis
 /vis-menu

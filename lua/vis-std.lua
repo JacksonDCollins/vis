@@ -108,6 +108,7 @@ local modes = {
 	[vis.modes.VISUAL_LINE] = 'VISUAL-LINE',
 	[vis.modes.INSERT] = 'INSERT',
 	[vis.modes.REPLACE] = 'REPLACE',
+	[vis.modes.TERMINAL] = 'TERMINAL',
 }
 
 vis.events.subscribe(vis.events.WIN_STATUS, function(win)

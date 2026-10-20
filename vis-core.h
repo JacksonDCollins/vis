@@ -145,12 +145,14 @@ typedef struct {
 } Transcript;
 
 struct File { /* shared state among windows displaying the same file */
+	struct VisTerminal *terminal; /* persistent PTY, independent of windows/input mode */
 	str8  name;                      /* suffix slice of filepath without working directory */
 	str8  filepath;                  /* file name used when loading/saving (0 terminated) */
 	Text *text;                      /* data structure holding the file content */
 	volatile sig_atomic_t truncated; /* whether the underlying memory mapped region became invalid (SIGBUS) */
 	int  fd;                         /* output file descriptor associated with this file or -1 if loaded by file name */
-	int  refcount;                   /* how many windows are displaying this file? (always >= 1) */
+	int  refcount;                   /* view references; zero for retained hidden buffers */
+	Mark last_cursor;                /* primary cursor restored when a buffer is displayed */
 	enum TextSaveMethod save_method; /* whether the file is saved using rename(2) or overwritten */
 	bool internal;                   /* whether it is an internal file (e.g. used for the prompt) */
 	Transcript transcript;           /* keeps track of changes performed by sam commands */
@@ -301,6 +303,15 @@ typedef MarkDef RegisterDef;
 
 /** stuff used by several of the vis-* files */
 
+VIS_INTERNAL File *vis_terminal_start(Vis*, const char*, bool, int);
+VIS_INTERNAL void vis_terminal_destroy(Vis*, File*);
+VIS_INTERNAL bool vis_terminal_running(File*);
+VIS_INTERNAL bool vis_terminal_active(Vis*);
+VIS_INTERNAL int vis_terminal_before_tick(Vis*, fd_set*, fd_set*, int);
+VIS_INTERNAL void vis_terminal_tick(Vis*, fd_set*, fd_set*);
+VIS_INTERNAL void vis_terminal_input(Vis*, const char*, size_t);
+VIS_INTERNAL void vis_terminal_enter(Vis*, Mode*);
+VIS_INTERNAL void vis_terminal_leave(Vis*, Mode*);
 static    Mode        vis_modes[VIS_MODE_INVALID];
 read_only Movement    vis_motions[VIS_MOVE_INVALID];
 read_only Operator    vis_operators[VIS_OP_INVALID];

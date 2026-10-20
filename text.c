@@ -79,6 +79,7 @@ typedef struct {
 
 /* The main struct holding all information of a given file */
 struct Text {
+	bool readonly; /* terminal screen snapshots are not editable documents */
 	/* blocks which hold text content */
 	// TODO: not sure that this needs to be an array of pointers
 	// but changing it breaks things so it will need to be revisited
@@ -428,6 +429,7 @@ static void text_change_free(TextChange *c) {
  */
 bool text_insert(Vis *vis, Text *txt, size_t pos, const void *data, size_t len)
 {
+	if (txt->readonly) return false;
 	if (len == 0)
 		return true;
 	if (pos > txt->size)
@@ -508,6 +510,7 @@ static size_t revision_redo(Text *txt, Revision *rev) {
 }
 
 size_t text_undo(Text *txt) {
+	if (txt->readonly) return EPOS;
 	size_t pos = EPOS;
 	/* taking rev snapshot makes sure that txt->current_revision is reset */
 	text_snapshot(txt);
@@ -521,6 +524,7 @@ size_t text_undo(Text *txt) {
 }
 
 size_t text_redo(Text *txt) {
+	if (txt->readonly) return EPOS;
 	size_t pos = EPOS;
 	/* taking a snapshot makes sure that txt->current_revision is reset */
 	text_snapshot(txt);
@@ -546,6 +550,7 @@ static bool history_change_branch(Revision *rev) {
 }
 
 static size_t history_traverse_to(Text *txt, Revision *rev) {
+	if (txt->readonly) return EPOS;
 	size_t pos = EPOS;
 	if (!rev)
 		return pos;
@@ -656,6 +661,7 @@ struct stat text_stat(const Text *txt) {
  *      \-+ <-- +----+ <-- +--+ <-- +-/
  */
 bool text_delete(Text *txt, size_t pos, size_t len) {
+	if (txt->readonly) return false;
 	if (len == 0)
 		return true;
 	size_t pos_end;
@@ -772,7 +778,7 @@ void text_free(Text *txt) {
 }
 
 bool text_modified(const Text *txt) {
-	return txt->saved_revision != txt->history;
+	return !txt->readonly && txt->saved_revision != txt->history;
 }
 
 bool text_mmaped(const Text *txt, const char *ptr) {

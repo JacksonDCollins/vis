@@ -235,7 +235,7 @@ static bool cmd_edit(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 	Win *oldwin = win;
 	if (!oldwin)
 		return false;
-	if (cmd->flags != '!' && !vis_window_closable(oldwin)) {
+	if (!argv[1] && cmd->flags != '!' && text_modified(oldwin->file->text)) {
 		info_unsaved_changes(vis);
 		return false;
 	}
@@ -246,15 +246,8 @@ static bool cmd_edit(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 		}
 		return vis_window_file_reload(vis, oldwin);
 	}
-	if (!openfiles(vis, &argv[1]))
-		return false;
-	if (vis->win != oldwin) {
-		Win *newwin = vis->win;
-		vis_window_swap(oldwin, newwin);
-		vis_window_close(oldwin);
-		vis_window_focus(vis, newwin);
-	}
-	return vis->win != oldwin;
+	const char *filename = file_open_dialog(vis, argv[1]);
+	return filename && vis_window_file_change(vis, oldwin, filename);
 }
 
 static bool cmd_read(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
@@ -297,31 +290,88 @@ vis_cmd_try_exit(Vis *vis, str8 exit_code_string)
 	return result;
 }
 
+static bool buffers_saved(Vis *vis)
+{
+	for (File *file = vis->files; file; file = file->next) {
+		if (vis_terminal_running(file)) {
+			vis_info_show(vis, "Terminal process is still running (use ! to terminate it)");
+			return false;
+		}
+		if (!file->internal && text_modified(file->text)) {
+			vis_info_show(vis, "Unsaved buffer: %.*s (use :bnext to switch; ! discards on exit)",
+			              file->name.length ? (int)file->name.length : 9,
+			              file->name.length ? (char *)file->name.data : "[No Name]");
+			return false;
+		}
+	}
+	return true;
+}
+
 VIS_INTERNAL bool
 vis_cmd_quit(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range)
 {
-	bool result = cmd->flags == '!' || vis_window_closable(win);
-	if (result) {
-		vis_window_close(win);
-		vis_cmd_try_exit(vis, str8_from_c_str(argv[1]));
-	} else {
-		info_unsaved_changes(vis);
-	}
-	return result;
+	bool last = true;
+	for (Win *other = vis->windows; other; other = other->next)
+		if (other != win && !other->file->internal)
+			last = false;
+	if (last && cmd->flags != '!' && !buffers_saved(vis))
+		return false;
+	vis_window_close(win);
+	vis_cmd_try_exit(vis, str8_from_c_str(argv[1]));
+	return true;
 }
 
 VIS_INTERNAL bool
 vis_cmd_qall(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range)
 {
+	if (cmd->flags != '!' && !buffers_saved(vis))
+		return false;
 	for (Win *next, *win = vis->windows; win; win = next) {
 		next = win->next;
-		if (!win->file->internal && (!text_modified(win->file->text) || cmd->flags == '!'))
+		if (!win->file->internal)
 			vis_window_close(win);
 	}
 
 	bool result = vis_cmd_try_exit(vis, str8_from_c_str(argv[1]));
 	if (!result) info_unsaved_changes(vis);
 	return result;
+}
+
+static bool cmd_buffers(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
+	Buffer listing = {0};
+	for (File *file = vis->files; file; file = file->next) {
+		if (file->internal)
+			continue;
+		if (!vis_buffer_appendf(&listing, "%c%c [%d views] %.*s\n",
+		                       file == win->file ? '*' : ' ', text_modified(file->text) ? '+' : ' ',
+		                       file->refcount, file->name.length ? (int)file->name.length : 9,
+		                       file->name.length ? (char *)file->name.data : "[No Name]")) {
+			buffer_release(&listing);
+			return false;
+		}
+	}
+	vis_buffer_terminate(&listing);
+	vis_message_show(vis, buffer_content0(&listing));
+	buffer_release(&listing);
+	return true;
+}
+
+static bool cmd_buffer_next(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
+	File *file = win->file;
+	bool forward = strcmp(cmd->cmddef->name, "bnext") == 0;
+	do {
+		file = forward ? file->next : file->prev;
+		if (!file) {
+			file = vis->files;
+			if (!forward)
+				while (file->next) file = file->next;
+		}
+	} while (file->internal);
+	return vis_buffer_switch(vis, win, file);
+}
+
+static bool cmd_buffer_delete(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
+	return vis_buffer_delete(vis, win, cmd->flags == '!');
 }
 
 static bool cmd_split(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
