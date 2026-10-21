@@ -346,6 +346,7 @@ VIS_INTERNAL Macro *macro_get(Vis *vis, enum VisRegister);
 
 VIS_INTERNAL Win *window_new_file(Vis*, File*, enum UiOption);
 VIS_INTERNAL void window_selection_save(Win *win);
+VIS_INTERNAL bool vis_jumphist_record(Win *win);
 VIS_INTERNAL void window_status_update(Vis *vis, Win *win);
 
 VIS_INTERNAL const char *register_get(Vis*, Register*, s64 *length);

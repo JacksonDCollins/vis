@@ -38,6 +38,8 @@ static Vis vis[1];
 	X(ka_jumplist,                        JUMPLIST_SAVE,                    .i = 0,                                   "vis-jumplist-save",                   "Save current selections in jump list") \
     X(ka_jumphist,                        JUMPHIST_NEXT,                    .i = VIS_JUMPHIST_NEXT,                   "vis-jump_history-next",               "Advance to the next location in the jump history") \
     X(ka_jumphist,                        JUMPHIST_PREV,                    .i = VIS_JUMPHIST_PREV,                   "vis-jump_history-prev",               "Return to the previous location in the jump history") \
+    X(ka_jumphist,                        JUMPHIST_FILE_NEXT,               .i = VIS_JUMPHIST_FILE_NEXT,              "vis-jump_history-file-next",          "Return to the next file in the jump history") \
+    X(ka_jumphist,                        JUMPHIST_FILE_PREV,               .i = VIS_JUMPHIST_FILE_PREV,              "vis-jump_history-file-prev",          "Return to the previous file in the jump history") \
     X(ka_jumphist,                        JUMPHIST_SHOW,                    .i = VIS_JUMPHIST_SHOW,                   "vis-jump_history-show",               "Show the current jump history locations") \
 	X(ka_later,                           LATER,                            0,                                        "vis-later",                           "Goto newer text state") \
 	X(ka_macro_record,                    MACRO_RECORD,                     0,                                        "vis-macro-record",                    "Record macro into given register") \

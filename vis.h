@@ -708,6 +708,8 @@ enum VisMotion {
 	VIS_JUMPHIST_NEXT,
 	VIS_JUMPHIST_PREV,
 	VIS_JUMPHIST_SHOW,
+	VIS_JUMPHIST_FILE_PREV,
+	VIS_JUMPHIST_FILE_NEXT,
 	VIS_MOVE_INVALID, /* denotes the end of the "real" motions */
 	/* pseudo motions: keep them at the end to save space in array definition */
 	VIS_MOVE_TOTILL_REPEAT,

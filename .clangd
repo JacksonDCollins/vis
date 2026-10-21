@@ -1,0 +1,4 @@
+CompileFlags:
+  Add:
+    - -DCONFIG_LUA=1
+    - -DCONFIG_CURSES=1

@@ -82,6 +82,8 @@ static const KeyBinding bindings_motions[] = {
 	{ "j<",                 ACTION(JUMPHIST_PREV)                       },
 	{ "j>",                 ACTION(JUMPHIST_NEXT)                       },
 	{ "jl",                 ACTION(JUMPHIST_SHOW)                       },
+	{ "jf<",                ACTION(JUMPHIST_FILE_PREV)                  },
+	{ "jf>",                ACTION(JUMPHIST_FILE_NEXT)                  },
 	{ 0 /* empty last element, array terminator */                      },
 };
 

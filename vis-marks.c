@@ -4,7 +4,9 @@
 #include "view.h"
 #include "vis-core.h"
 #include "vis.h"
+#include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 
 static DA_COMPARE_FN(ranges_comparator)
@@ -140,18 +142,44 @@ void vis_jumplist(Vis *vis, int advance)
 	da_release(&cur);
 }
 
-void vis_jumphist_advance(Vis *vis, int advance) {
+bool vis_jumphist_jump_to(Win *win, JumpHistory jh) {
+	if (!win || !jh.file)return false;
+	Vis *vis = win->vis;
 
+	File *file = vis->files;
+	while (file && file != jh.file) {
+		file = file->next;
+	}
+	if (!file)return false;
+
+	size_t pos = text_mark_get(file->text, jh.cursor);
+	if (pos == EPOS)return false;
+
+	if (!vis_buffer_switch(vis, win, file)) return false;
+
+	view_cursors_to(win->view.selection, pos);
+	vis_redraw(vis);
+	return true;
 }
 
-void vis_jumphist_insert(Vis *vis, int index) {
-	Win *win = vis->win;
+bool vis_check_jumphist_entry_valid(JumpHistory jh) {
+	if ( !jh.file || jh.cursor == EMARK) return false;
+	size_t pos = text_mark_get(jh.file->text, jh.cursor);
+	if (pos == EPOS) return false;
+
+	return true;
+}
+
+static bool jumphist_file_eligible(File *file) {
+	return file && !file->internal && !file->terminal &&
+	       (file->name.length > 0 || text_size(file->text) > 0 || text_modified(file->text));
+}
+
+void vis_jumphist_insert(Win *win, int index, Mark cursor, File *file) {
+	if (!jumphist_file_eligible(file) || cursor == EMARK) return;
 	if (!win || index < 0 || (size_t)index > win->jumphist_count) return;
 	assert(win->jumphist_count <= VIS_JUMPHIST_MAX_COUNT);
 	assert(win->jumphist_start < VIS_JUMPHIST_MAX_COUNT);
-
-	Mark cursor = text_mark_set(win->file->text, view_cursor_get(&win->view));
-	if (cursor == EMARK) return;
 
 	if (win->jumphist_count == VIS_JUMPHIST_MAX_COUNT) {
 		win->jumphist_start = (win->jumphist_start + 1) % VIS_JUMPHIST_MAX_COUNT;
@@ -172,10 +200,129 @@ void vis_jumphist_insert(Vis *vis, int index) {
 
 	size_t slot = (win->jumphist_start + (size_t)index) % VIS_JUMPHIST_MAX_COUNT;
 	win->jumps[slot] = (JumpHistory) {
-		.file = win->file,
+		.file = file,
 		.cursor = cursor,
 	};
 	win->jumphist_count++;
+}
+
+void vis_jumphist_append(Win *win, Mark mark, File *file) {
+	if (!win) return;
+	vis_jumphist_insert(win, win->jumphist_count, mark, file);
+}
+
+void vis_jumphist_remove(Win *win, int index) {
+	if (!win || index < 0 || index >= win->jumphist_count) return;
+
+	size_t vacant = (win->jumphist_start + win->jumphist_count - 1 )%VIS_JUMPHIST_MAX_COUNT;
+
+	if (index == 0 ) {
+		vacant = win->jumphist_start;
+		win->jumphist_start = (win->jumphist_start + 1 ) %VIS_JUMPHIST_MAX_COUNT;
+	} else {
+		for (size_t i = index; i+1 < win->jumphist_count; i++ ) {
+			size_t dst = (win->jumphist_start + i ) % VIS_JUMPHIST_MAX_COUNT;
+			size_t src = (win->jumphist_start + i + 1) %VIS_JUMPHIST_MAX_COUNT;
+			win->jumps[dst] = win->jumps[src];
+		}
+	}
+
+	win->jumps[vacant] = (JumpHistory){0};
+	win->jumphist_count--;
+
+	if (index < win->jumphist_index) win->jumphist_index--;
+}
+
+void vis_jumphist_prune_file(Vis *vis, File *file) {
+	// Win *win = vis->win;
+	for (Win *win = vis->windows; win; win = win->next){
+		for (size_t i = 0; i < win->jumphist_count;) {
+			size_t slot = (win->jumphist_start + i) % VIS_JUMPHIST_MAX_COUNT;
+			JumpHistory jh = win->jumps[slot];
+			if (!jh.file || jh.file == file ) {
+				vis_jumphist_remove(win, i);
+			} else i++;
+		}
+	}
+}
+
+bool vis_jumphist_record(Win *win) {
+	if (!win || !jumphist_file_eligible(win->file)) return true;
+	Mark cursor = text_mark_set(win->file->text, view_cursor_get(&win->view));
+	if (cursor == EMARK) return false;
+	File *file = win->file;
+	size_t current_pos=text_mark_get(file->text, cursor);
+	if (current_pos == EPOS) return false;
+	size_t current_line = text_lineno_by_pos(file->text, current_pos);
+
+	for (size_t i = 0; i < win->jumphist_count; /* advance when not removed */) {
+	  size_t slot = (win->jumphist_start + i) % VIS_JUMPHIST_MAX_COUNT;
+	  JumpHistory jh = win->jumps[slot];
+	  	if (jh.cursor == EMARK || !jh.file) {
+			i++;
+			continue;
+		}
+		size_t jhpos = text_mark_get(jh.file->text, jh.cursor);
+		if (jhpos == EPOS) {
+			i++;
+			continue;
+		}
+		size_t jhline = text_lineno_by_pos(jh.file->text, jhpos);
+		if (jh.file == file && current_line == jhline)  {
+			vis_jumphist_remove(win, i);
+		} else {
+			i++;
+		}
+	}
+
+	vis_jumphist_append(win, cursor, file);
+	win->jumphist_index = win->jumphist_count;
+	return true;
+}
+
+void vis_jumphist_advance(Win *win, int advance, bool file) {
+	if (!win || advance == 0 || win->jumphist_count == 0) return;
+	assert(win->jumphist_count <= VIS_JUMPHIST_MAX_COUNT);
+	assert(win->jumphist_start < VIS_JUMPHIST_MAX_COUNT);
+	assert(win->jumphist_index <= win->jumphist_count);
+
+	if (win->jumphist_index == win->jumphist_count) {
+		if (advance > 0) return;
+
+		if (jumphist_file_eligible(win->file)) {
+			Mark mark = text_mark_set(win->file->text,
+                                   view_cursor_get(&win->view));
+			if (mark == EMARK) return;
+
+			vis_jumphist_append(win, mark, win->file);
+			win->jumphist_index = win->jumphist_count - 1;
+		}
+	}
+
+	int direction = advance > 0 ? 1 : -1;
+	int64_t remaining = advance > 0 ? (int64_t)advance : -(int64_t)advance;
+	int64_t target = (int64_t)win->jumphist_index;
+	File *last_file = win->file;
+	while (remaining > 0) {
+		target += direction;
+		if (target < 0 || target >= (int64_t)win->jumphist_count) return;
+		size_t slot = (win->jumphist_start + (size_t)target) % VIS_JUMPHIST_MAX_COUNT;
+
+		if (!vis_check_jumphist_entry_valid(win->jumps[slot])) {
+			vis_jumphist_remove(win, (int)target);
+			/* Forward removal shifts the next candidate into this slot. */
+			if (direction > 0) target--;
+			continue;
+		}
+		if (!file || win->jumps[slot].file != last_file) {
+			last_file = win->jumps[slot].file;
+			remaining--;
+		}
+	}
+
+	size_t slot = (win->jumphist_start + (size_t)target) % VIS_JUMPHIST_MAX_COUNT;
+	if (vis_jumphist_jump_to(win, win->jumps[slot]))
+		win->jumphist_index = (size_t)target;
 }
 
 void vis_jumphist_show(Vis *vis) {
@@ -189,7 +336,7 @@ void vis_jumphist_show(Vis *vis) {
 		size_t pos = text_mark_get(jump.file->text, jump.cursor);
 		if (pos == EPOS) continue;
 		size_t line = text_lineno_by_pos(jump.file->text, pos);
-		int column = text_line_char_get(jump.file->text, pos);
+		int column = text_line_char_get(jump.file->text, pos) + 1;
 
 		if (!vis_buffer_appendf(&lines, "%c [%zu] %.*s %zu:%d\n",
 	i == win->jumphist_index ? '*' : ' ',
@@ -214,40 +361,15 @@ void vis_jumphist(Vis *vis, enum VisMotion motion)
 {
 
 	if (motion == VIS_JUMPHIST_PREV)
-		vis_jumphist_advance(vis, -1);
+		vis_jumphist_advance(vis->win, -1, false);
 	else if (motion == VIS_JUMPHIST_NEXT)
-		vis_jumphist_advance(vis, 1);
+		vis_jumphist_advance(vis->win, 1, false);
 	else if (motion == VIS_JUMPHIST_SHOW)
 		vis_jumphist_show(vis);
-
-	// Win *win = vis->win;
-	// Text *txt = win->file->text;
-	//
-	// Buffer jumps = {0};
-	// for (size_t i = 0; i < VIS_MARK_SET_LRU_COUNT; i++) {
-	// 	size_t cursor = (win->mark_set_lru_cursor + i) % VIS_MARK_SET_LRU_COUNT;
-	// 	SelectionRegionList *next = win->mark_set_lru_regions + cursor;
-	// 	if (next->count) {
-	// 		for (VisDACount j =0; j< next->count; j++) {
-	//
-	// 			size_t pos = text_mark_get(txt, next->data[j].cursor);
-	// 			if (pos == EPOS) continue;
-	// 			size_t line = text_lineno_by_pos(txt,pos);
-	// 			int column = text_line_char_get(txt,pos) + 1;
-	// 			char file_name[256]	= {0};
-	// 			snprintf(file_name, sizeof(file_name), "%.*s", win->file->name.length ? (int)win->file->name.length : 9, (int)win->file->name.length ? (char *)win->file->name.data : "[No Name]");
-	// 			if (!vis_buffer_appendf(&jumps, "%s [%zu] %zu:%d\n",
-	// 										file_name, i, line, column
-	// 						)){
-	// 				buffer_release(&jumps);
-	// 				return;
-	// 			}
-	// 		}
-	// 	}
-	// }
-	// vis_buffer_terminate(&jumps);
-	// vis_message_show(vis, buffer_content0(&jumps));
-	// buffer_release(&jumps);
+	else if (motion == VIS_JUMPHIST_FILE_PREV)
+		vis_jumphist_advance(vis->win, -1, true);
+	else if (motion == VIS_JUMPHIST_FILE_NEXT)
+		vis_jumphist_advance(vis->win, 1, true);
 }
 
 enum VisMark vis_mark_from(Vis *vis, char mark) {

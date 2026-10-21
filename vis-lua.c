@@ -11,6 +11,7 @@
  * @license ISC
  * @release RELEASE
  */
+#include "text.h"
 #include "vis-core.h"
 
 #ifndef VIS_PATH
@@ -378,7 +379,8 @@ static void *obj_lightref_check(lua_State *L, int idx, const char *type) {
 static Vis *lua_get_vis(lua_State *L)
 {
 	lua_getglobal(L, "vis");
-	Vis *result = luaL_checkudata(L, -1, "vis");
+	Vis *result = obj_ref_check(L, -1, VIS_LUA_TYPE_VIS);
+	lua_pop(L, 1);
 	return result;
 }
 
@@ -2090,10 +2092,14 @@ static int window_newindex(lua_State *L) {
 			return result;
 		} else if (strcmp(key, "file") == 0) {
 			bool ok;
-			if (lua_isstring(L, 3))
+			if (lua_isstring(L, 3)) {
 				ok = vis_window_file_change(win->vis, win, lua_tostring(L, 3));
-			else
-				ok = vis_buffer_switch(win->vis, win, obj_ref_check(L, 3, VIS_LUA_TYPE_FILE));
+			} else {
+				File *file = obj_ref_check(L, 3, VIS_LUA_TYPE_FILE);
+				if (file != win->file)
+					vis_jumphist_record(win);
+				ok = vis_buffer_switch(win->vis, win, file);
+			}
 			if (!ok) return luaL_argerror(L, 3, "failed to open");
 			return 0;
 		}
@@ -2505,6 +2511,23 @@ static int window_selection_index(lua_State *L) {
 	return index_common(L);
 }
 
+static void window_selection_jump(Vis *vis, Selection *sel, size_t pos) {
+	if (pos == EPOS)
+		return;
+	size_t size = text_size(sel->view->text);
+	if (pos > size)
+		pos = size;
+
+	for (Win *win = vis->windows; win; win = win->next) {
+		if (&win->view == sel->view) {
+			if (sel == win->view.selection && pos != view_cursors_pos(sel))
+				vis_jumphist_record(win);
+			break;
+		}
+	}
+	view_cursors_to(sel, pos);
+}
+
 static int window_selection_newindex(lua_State *L) {
 	Selection *sel = obj_lightref_check(L, 1, VIS_LUA_TYPE_SELECTION);
 	if (!sel)
@@ -2513,7 +2536,7 @@ static int window_selection_newindex(lua_State *L) {
 		const char *key = lua_tostring(L, 2);
 		if (strcmp(key, "pos") == 0) {
 			size_t pos = checkpos(L, 3);
-			view_cursors_to(sel, pos);
+			window_selection_jump(lua_get_vis(L), sel, pos);
 			return 0;
 		}
 
@@ -2547,7 +2570,11 @@ static int window_selection_to(lua_State *L) {
 	if (sel) {
 		size_t line = checkpos(L, 2);
 		size_t col = checkpos(L, 3);
-		view_cursors_place(sel, line, col);
+		Text *txt = sel->view->text;
+		size_t pos = text_pos_by_lineno(txt, line);
+		if (pos == EPOS) return 0;
+		pos = text_line_char_set(txt, pos, col > 0 ? col - 1 : 0);
+		window_selection_jump(lua_get_vis(L), sel, pos);
 	}
 	return 0;
 }

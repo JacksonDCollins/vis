@@ -1,4 +1,5 @@
 /* Persistent terminal buffers. Only PTYs/pipes carry runtime I/O. */
+#include "vis-core.h"
 #include <pty.h>
 #include <vterm.h>
 
@@ -399,6 +400,7 @@ VIS_INTERNAL File *vis_terminal_start(Vis *vis, const char *command, bool captur
 	if (t->error) goto fail;
 	file->internal = false;
 	vis_event_emit(vis, VIS_EVENT_FILE_OPEN, file);
+	vis_jumphist_record(vis->win);
 	if (!vis_buffer_switch(vis, vis->win, file)) goto fail;
 	t->callback = callback;
 	vis_mode_switch(vis, VIS_MODE_TERMINAL);

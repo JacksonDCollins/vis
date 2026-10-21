@@ -1,4 +1,5 @@
 #include "util.h"
+#include <stdbool.h>
 
 #define TERMKEY_EXPORT VIS_INTERNAL
 #include "external/termkey.c"
@@ -59,6 +60,9 @@ vis_file_destroy(Vis *vis, File *file, bool notify)
 
 		for (u64 i = 0; i < countof(file->marks); i++)
 			da_release(file->marks + i);
+
+		//remove from jh
+		vis_jumphist_prune_file(vis, file);
 
 		text_free(file->text);
 		free(file->filepath.data);
@@ -414,7 +418,10 @@ VIS_EXPORT bool
 vis_window_file_change(Vis *vis, Win *win, const char *filename)
 {
 	File *file = vis_file_new(vis, filename, VisFileNewFlag_NoRefcount);
-	return file && vis_buffer_switch(vis, win, file);
+	if (!file)return false;
+
+	if (file != win->file) vis_jumphist_record(win);
+	return vis_buffer_switch(vis, win, file);
 }
 
 bool vis_window_split(Win *original) {
@@ -429,6 +436,10 @@ bool vis_window_split(Win *original) {
 			vis_map_copy(win->modes[i].bindings, original->modes[i].bindings);
 	}
 	win->file = original->file;
+	memcpy(win->jumps, original->jumps, sizeof(win->jumps));
+	win->jumphist_start = original->jumphist_start;
+	win->jumphist_count = original->jumphist_count;
+	win->jumphist_index = original->jumphist_index;
 	win_options_set(win, original->options);
 	view_cursors_to(win->view.selection, view_cursor_get(&original->view));
 	win->vis->ui.doupdate = true;
@@ -875,6 +886,12 @@ void vis_do(Vis *vis) {
 				c.range = text_range_new(start, pos);
 				c.newpos = pos;
 			}
+
+			if (!a->op &&
+				   (a->movement->type & JUMP) &&
+				   sel == view->selection &&
+				   pos != start)
+				  vis_jumphist_record(win);
 
 			if (!a->op) {
 				if (a->movement->type & CHARWISE)

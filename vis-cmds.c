@@ -367,6 +367,7 @@ static bool cmd_buffer_next(Vis *vis, Win *win, Command *cmd, const char *argv[]
 				while (file->next) file = file->next;
 		}
 	} while (file->internal);
+	if (file != win->file)vis_jumphist_record(win);
 	return vis_buffer_switch(vis, win, file);
 }
 
