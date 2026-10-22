@@ -358,7 +358,7 @@ static bool cmd_buffers(Vis *vis, Win *win, Command *cmd, const char *argv[], Se
 
 static bool cmd_buffer_next(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
 	File *file = win->file;
-	bool forward = strcmp(cmd->cmddef->name, "bnext") == 0;
+	bool forward = str8_equal(cmd->cmddef->name, str8("bnext"));
 	do {
 		file = forward ? file->next : file->prev;
 		if (!file) {
