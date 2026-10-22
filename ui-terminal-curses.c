@@ -20,6 +20,8 @@
 #endif
 
 #define MAX_COLOR_CLOBBER 240
+#define DIRECT_COLOR_INDEXED_BASE 0x1000000
+#define DIRECT_COLOR_COUNT (DIRECT_COLOR_INDEXED_BASE + 256)
 
 VIS_INTERNAL VisCellStyle
 vis_ui_backend_style_default(Ui *ui)
@@ -64,6 +66,13 @@ vis_terminal_style_rgb(Vis *vis, u8 r, u8 g, u8 b)
 	VisTerminalStyle result = {.indexed = true};
 
 	VisCursesUI *cui = &vis->ui.curses;
+	if (cui->direct_color) {
+		result.indexed = false;
+		result.color.rgb.r = r;
+		result.color.rgb.g = g;
+		result.color.rgb.b = b;
+		return result;
+	}
 	static short color_clobber_idx = 0;
 	static uint32_t clobbering_colors[MAX_COLOR_CLOBBER];
 
@@ -153,45 +162,50 @@ vis_terminal_style_indexed(u8 index)
 	return result;
 }
 
-VIS_INTERNAL u32
-vis_ui_curses_color_pair_hash(s16 fg, s16 bg)
-{
-	if (fg == -1) fg = COLORS;
-	if (bg == -1) bg = COLORS + 1;
-	u32 result = fg * (COLORS + 2) + bg;
-	return result;
-}
-
-VIS_INTERNAL u16
-vis_ui_curses_color_pair_get(Ui *ui, u16 fg, u16 bg)
+VIS_INTERNAL short
+vis_ui_curses_color_pair_get(Ui *ui, int fg, int bg)
 {
 	VisCursesUI *cui = &ui->curses;
-	if (fg >= COLORS)
-		fg = cui->default_fg;
-	if (bg >= COLORS)
-		bg = cui->default_bg;
-
 	if (!cui->palette)
 		return 0;
 
-	u32 index = vis_ui_curses_color_pair_hash(fg, bg);
-	if (cui->palette[index] == 0) {
-		s16 oldfg, oldbg;
-		if (++cui->color_pair_current >= cui->color_pairs_max)
-			cui->color_pair_current = 1;
-		pair_content(cui->color_pair_current, &oldfg, &oldbg);
-		u32 old_index = vis_ui_curses_color_pair_hash(oldfg, oldbg);
-		if (init_pair(cui->color_pair_current, fg, bg) == OK) {
-			cui->palette[old_index] = 0;
-			cui->palette[index] = cui->color_pair_current;
-		}
+	size_t count = (size_t)cui->color_pairs_max * 2;
+	size_t slot = ((u32)fg * 2654435761u ^ (u32)bg) % count;
+	while (cui->palette[slot].id) {
+		VisCursesColorPair *pair = &cui->palette[slot];
+		if (pair->fg == fg && pair->bg == bg)
+			return pair->id;
+		slot = (slot + 1) % count;
 	}
 
-	return cui->palette[index];
+	/* shortcut: full caches use defaults; add frame-safe reclamation if exhaustion becomes common. */
+	if (cui->color_pair_current + 1 >= cui->color_pairs_max)
+		return 0;
+	short id = cui->color_pair_current + 1;
+#if defined(NCURSES_EXT_COLORS) && NCURSES_EXT_COLORS && defined(NCURSES_EXT_FUNCS)
+	int status = init_extended_pair(id, fg, bg);
+#else
+	int status = init_pair(id, fg, bg);
+#endif
+	if (status == ERR)
+		return 0;
+	cui->color_pair_current = id;
+	cui->palette[slot] = (VisCursesColorPair){.fg = fg, .bg = bg, .id = id};
+	return id;
 }
 
-VIS_INTERNAL attr_t
-vis_ui_curses_style_to_attr(Ui *ui, VisCellStyle style)
+static int curses_color(Ui *ui, bool indexed, u16 index, u8 r, u8 g, u8 b) {
+	if (!indexed)
+		return ((int)r << 16) | ((int)g << 8) | b;
+	if (index == UINT16_MAX)
+		return -1;
+	if (ui->curses.direct_color)
+		return index < 256 ? DIRECT_COLOR_INDEXED_BASE + index : -1;
+	return index < COLORS ? index : -1;
+}
+
+VIS_INTERNAL void
+vis_ui_curses_style_set(Ui *ui, WINDOW *window, VisCellStyle style)
 {
 	attr_t result = 0;
 	result |= (style.attributes & VisCellAttribute_Underline) ? A_UNDERLINE : 0;
@@ -200,9 +214,11 @@ vis_ui_curses_style_to_attr(Ui *ui, VisCellStyle style)
 	result |= (style.attributes & VisCellAttribute_Bold)      ? A_BOLD      : 0;
 	result |= (style.attributes & VisCellAttribute_Italic)    ? A_ITALIC    : 0;
 	result |= (style.attributes & VisCellAttribute_Dim)       ? A_DIM       : 0;
-	result |= COLOR_PAIR(vis_ui_curses_color_pair_get(ui, VisCellStyleFGIndexGet(&style),
-	                                                  VisCellStyleBGIndexGet(&style)));
-	return result;
+	int fg = curses_color(ui, style.properties & VisCellProperty_IndexedFG,
+	                      VisCellStyleFGIndexGet(&style), style.fg_r, style.fg_g, style.fg_b);
+	int bg = curses_color(ui, style.properties & VisCellProperty_IndexedBG,
+	                      VisCellStyleBGIndexGet(&style), style.bg_r, style.bg_g, style.bg_b);
+	wattr_set(window, result, vis_ui_curses_color_pair_get(ui, fg, bg), NULL);
 }
 
 static void ui_term_backend_blit(Ui *tui) {
@@ -211,7 +227,7 @@ static void ui_term_backend_blit(Ui *tui) {
 	VisCellStyle *style = tui->cell_buffer.styles;
 	for (int y = 0; y < h; y++) {
 		for (int x = 0; x < w; x++) {
-			attrset(vis_ui_curses_style_to_attr(tui, *style));
+			vis_ui_curses_style_set(tui, stdscr, *style);
 			mvaddnstr(y, x, (char *)cell->data, cell->data_length);
 			cell++;
 			style++;
@@ -254,14 +270,41 @@ int ui_terminal_colors(void) {
 static bool
 ui_backend_init(Ui *ui, char *term)
 {
-	bool result = newterm(term, stderr, stdin) != 0;
-	if (!result) {
+	SCREEN *screen = NULL;
+#if defined(NCURSES_EXT_COLORS) && NCURSES_EXT_COLORS && defined(NCURSES_EXT_FUNCS)
+	const char *colorterm = getenv("COLORTERM");
+	bool wants_rgb = (colorterm && (!strcmp(colorterm, "truecolor") || !strcmp(colorterm, "24bit"))) ||
+	                 strstr(term, "-direct");
+	if (wants_rgb) {
+		screen = newterm("vis-direct", stderr, stdin);
+		ui->curses.direct_color = screen != NULL;
+		if (!screen)
+			snprintf(ui->info, sizeof(ui->info), "Warning: vis-direct terminfo missing; using indexed colors");
+	}
+#endif
+	if (!screen)
+		screen = newterm(term, stderr, stdin);
+	if (!screen) {
 		snprintf(ui->info, sizeof(ui->info), "Warning: unknown term `%s'", term);
-		result = newterm(strstr(term, "-256color") ? "xterm-256color" : "xterm", stderr, stdin) != 0;
+		screen = newterm(strstr(term, "-256color") ? "xterm-256color" : "xterm", stderr, stdin);
 	}
 
-	if (result) {
+	if (screen) {
 		start_color();
+		/* Do not interpret another direct profile's RGB IDs as palette indices. */
+		if (!ui->curses.direct_color && COLORS > 256) {
+			endwin();
+			delscreen(screen);
+			screen = newterm("xterm-256color", stderr, stdin);
+			if (!screen)
+				return false;
+			start_color();
+		}
+		if (ui->curses.direct_color && COLORS != DIRECT_COLOR_COUNT) {
+			endwin();
+			delscreen(screen);
+			return false;
+		}
 		use_default_colors();
 		cbreak();
 		noecho();
@@ -272,11 +315,18 @@ ui_backend_init(Ui *ui, char *term)
 		pair_content(0, &ui->curses.default_fg, &ui->curses.default_bg);
 		ui->curses.change_colors   = -1;
 		ui->curses.color_pairs_max = MIN(MAX_COLOR_PAIRS, SHRT_MAX);
-		if (COLORS)
-			ui->curses.palette = calloc((COLORS + 2) * (COLORS + 2), sizeof(s16));
+		if (COLORS && ui->curses.color_pairs_max > 1) {
+			ui->curses.palette = calloc((size_t)ui->curses.color_pairs_max * 2,
+			                           sizeof(*ui->curses.palette));
+			if (!ui->curses.palette) {
+				endwin();
+				delscreen(screen);
+				return false;
+			}
+		}
 	}
 
-	return result;
+	return screen != NULL;
 }
 
 VIS_INTERNAL void ui_terminal_resume(Ui *term) {}

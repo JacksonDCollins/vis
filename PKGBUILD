@@ -1,7 +1,7 @@
 # Checkout build: dotfiles pins fresh clones; local edits are included intentionally.
 pkgname=vis-retained-terminal
 pkgver=0.9.r501.g254329d9
-pkgrel=2
+pkgrel=3
 pkgdesc='Vis with retained buffers and asynchronous terminal mode (including lexers)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/JacksonDCollins/vis'

@@ -49,7 +49,7 @@ Privileged dependency installation uses normal sudo/pacman authentication and
 package verification; no signature or dependency checks are bypassed.
 
 The package owns `/usr/bin/vis`, its helpers, `/usr/share/vis` (including lexers),
-man pages, license and documentation. It declares runtime library dependencies
+the `vis-direct` terminfo entry, man pages, license and documentation. It declares runtime library dependencies
 and the ACL/ncurses ABI requirements advertised by Arch packages, and
 provides/conflicts with both `vis` and `vis-lexers`. Lua, TRE and libvterm do not
 currently advertise matching soname providers, so their package-name dependencies
@@ -74,7 +74,7 @@ Never publish a package built from unintended untracked files.
 ## Build without installing
 
 This variant currently requires Linux, a C compiler, make, pkg-config, Lua,
-ncursesw, TRE and libvterm development files. The Lua runtime also uses LPeg
+ncursesw (including `tic`), TRE and libvterm development files. The Lua runtime also uses LPeg
 and lexers. No dependencies are downloaded by these commands.
 
 ```sh
@@ -92,6 +92,32 @@ For sanitizer checks on the pinned upstream version, explicitly set
 `TERMINFO=/usr/share/terminfo`. Its unchanged `external/unibilium.c` has an
 out-of-bounds hexadecimal-directory fallback when an earlier lookup fails.
 This workaround does not fix that upstream defect.
+
+## True-color rendering
+
+With extended-color ncurses, `COLORTERM=truecolor` or `COLORTERM=24bit` selects
+24-bit rendering; an explicit `*-direct` TERM also requests it. The display uses
+the installed `vis-direct` terminfo entry. Input decoding and the environment's
+TERM retain their original values. This profile uses xterm-compatible control
+sequences, suitable for Foot and tmux with RGB support enabled.
+
+The profile keeps all RGB values (including black and near-black) separate from
+ANSI palette indices. Themes and terminal buffers both preserve RGB colors;
+default terminal colors and indexed colors remain supported. No palette
+redefinition is needed in direct mode. Without the profile or a true-color request,
+the existing indexed-color approximation/palette-redefinition path remains.
+
+`make` builds the profile in `terminfo/`, and `make install` installs it under
+`${SHAREPREFIX}/terminfo`. For a checkout build without installation, run with
+`TERMINFO=/usr/share/terminfo TERMINFO_DIRS="$PWD/terminfo:/usr/share/terminfo"`
+in addition to the matching Lua runtime. The standalone `vis-single` wrapper
+requires an installed profile for direct color; its payload does not bundle it.
+
+Color pairs use a bounded sparse cache rather than a table sized by the square of
+the color count. Pair IDs are never recycled while curses cells reference them.
+At most `min(COLOR_PAIRS, 32767) - 1` distinct foreground/background combinations
+are allocated per editor process. If exhausted, new combinations use the default
+pair instead of recoloring existing cells; restarting clears the cache.
 
 ## Retained buffers
 

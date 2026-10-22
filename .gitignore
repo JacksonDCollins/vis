@@ -1,5 +1,6 @@
 /config.h
 /config.mk
+/terminfo/
 /src/
 /pkg/
 /*.pkg.tar.*

@@ -118,7 +118,13 @@ typedef struct {
 } VisCellBuffer;
 
 typedef struct {
-	s16  *palette;
+	int fg, bg;
+	s16 id;
+} VisCursesColorPair;
+
+typedef struct {
+	VisCursesColorPair *palette;
+	bool direct_color;
 	s16   color_pairs_max;
 	s16   color_pair_current;
 	s16   default_fg;

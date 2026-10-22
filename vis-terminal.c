@@ -418,14 +418,32 @@ static VisCellStyle terminal_style(VisTerminal *t, VTermScreenCell *cell) {
 	                   (cell->attrs.reverse ? VisCellAttribute_Reverse : 0) |
 	                   (cell->attrs.blink ? VisCellAttribute_Blink : 0);
 	if (!VTERM_COLOR_IS_DEFAULT_FG(&cell->fg)) {
-		unsigned c = VTERM_COLOR_IS_INDEXED(&cell->fg) ? cell->fg.indexed.idx :
-			vis_terminal_style_rgb(t->vis, cell->fg.rgb.red, cell->fg.rgb.green, cell->fg.rgb.blue).color.index;
-		VisCellStyleFGIndexSet(&style, c);
+		VisTerminalStyle color = VTERM_COLOR_IS_INDEXED(&cell->fg) ?
+			vis_terminal_style_indexed(cell->fg.indexed.idx) :
+			vis_terminal_style_rgb(t->vis, cell->fg.rgb.red, cell->fg.rgb.green, cell->fg.rgb.blue);
+		if (color.indexed) {
+			style.properties |= VisCellProperty_IndexedFG;
+			VisCellStyleFGIndexSet(&style, color.color.index);
+		} else {
+			style.properties &= ~VisCellProperty_IndexedFG;
+			style.fg_r = color.color.rgb.r;
+			style.fg_g = color.color.rgb.g;
+			style.fg_b = color.color.rgb.b;
+		}
 	}
 	if (!VTERM_COLOR_IS_DEFAULT_BG(&cell->bg)) {
-		unsigned c = VTERM_COLOR_IS_INDEXED(&cell->bg) ? cell->bg.indexed.idx :
-			vis_terminal_style_rgb(t->vis, cell->bg.rgb.red, cell->bg.rgb.green, cell->bg.rgb.blue).color.index;
-		VisCellStyleBGIndexSet(&style, c);
+		VisTerminalStyle color = VTERM_COLOR_IS_INDEXED(&cell->bg) ?
+			vis_terminal_style_indexed(cell->bg.indexed.idx) :
+			vis_terminal_style_rgb(t->vis, cell->bg.rgb.red, cell->bg.rgb.green, cell->bg.rgb.blue);
+		if (color.indexed) {
+			style.properties |= VisCellProperty_IndexedBG;
+			VisCellStyleBGIndexSet(&style, color.color.index);
+		} else {
+			style.properties &= ~VisCellProperty_IndexedBG;
+			style.bg_r = color.color.rgb.r;
+			style.bg_g = color.color.rgb.g;
+			style.bg_b = color.color.rgb.b;
+		}
 	}
 	return style;
 }
@@ -461,7 +479,7 @@ VIS_INTERNAL void vis_terminal_draw(Ui *ui) {
 			len += n;
 		}
 		if (!len || cell.attrs.conceal || col + cell.width > cols) { bytes[0] = ' '; len = 1; }
-		wattrset(t->canvas, vis_ui_curses_style_to_attr(ui, terminal_style(t, &cell)));
+		vis_ui_curses_style_set(ui, t->canvas, terminal_style(t, &cell));
 		mvwaddnstr(t->canvas, row, col, bytes, len);
 	}
 	if (copywin(t->canvas, stdscr, 0, 0, win->y, win->x,

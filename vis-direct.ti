@@ -1,0 +1,9 @@
+# Display-only profile. Keyboard decoding keeps the original TERM.
+# RGB IDs are 0..0xffffff; the next 256 IDs preserve indexed ANSI colors.
+vis-direct|vis direct RGB and indexed colors,
+	RGB,
+	ccc@, initc@,
+	colors#0x1000100, pairs#0x10000,
+	setaf=\E[%?%p1%{16777216}%<%t38;2;%p1%{65536}%/%d;%p1%{256}%/%{255}%&%d;%p1%{255}%&%d%e38;5;%p1%{16777216}%-%d%;m,
+	setab=\E[%?%p1%{16777216}%<%t48;2;%p1%{65536}%/%d;%p1%{256}%/%{255}%&%d;%p1%{255}%&%d%e48;5;%p1%{16777216}%-%d%;m,
+	use=xterm-256color,

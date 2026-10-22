@@ -30,8 +30,14 @@ LDFLAGS_VIS += $(shell pkg-config --libs vterm) -lutil
 STRIP?=strip
 TAR?=tar
 DOCKER?=docker
+TIC?=tic
 
 all: $(ELF)
+
+terminfo/.stamp: vis-direct.ti
+	mkdir -p terminfo
+	$(TIC) -x -o terminfo vis-direct.ti
+	touch $@
 
 config.h:
 	cp config.def.h config.h
@@ -39,7 +45,7 @@ config.h:
 config.mk:
 	@touch $@
 
-vis: config.h
+vis: config.h terminfo/.stamp
 	${CC} ${CFLAGS} ${CFLAGS_VIS} ${CFLAGS_EXTRA} main.c ${LDFLAGS} ${LDFLAGS_VIS} ${LDFLAGS_EXTRA} -o $@
 
 vis-menu: vis-menu.c
@@ -102,6 +108,7 @@ clean:
 	@$(MAKE) -C doc clean
 	@$(MAKE) -C test clean
 	@rm -f $(ELF) vis-single vis-single-payload.inc vis-*.tar.gz *.gcov *.gcda *.gcno
+	@rm -rf terminfo
 
 distclean: clean
 	@echo cleaning build configuration
@@ -127,6 +134,9 @@ luacheck:
 	@luacheck --config .luacheckrc lua test/lua | less -RFX
 
 install: $(ELF)
+	@echo installing vis-direct terminfo to ${DESTDIR}${SHAREPREFIX}/terminfo
+	@mkdir -p ${DESTDIR}${SHAREPREFIX}/terminfo
+	@cp -r terminfo/* ${DESTDIR}${SHAREPREFIX}/terminfo/
 	@echo installing executable files to ${DESTDIR}${PREFIX}/bin
 	@mkdir -p ${DESTDIR}${PREFIX}/bin
 	@for e in ${EXECUTABLES}; do \
@@ -162,6 +172,7 @@ install-strip: install
 	done
 
 uninstall:
+	@rm -f ${DESTDIR}${SHAREPREFIX}/terminfo/v/vis-direct ${DESTDIR}${SHAREPREFIX}/terminfo/76/vis-direct
 	@echo removing executable file from ${DESTDIR}${PREFIX}/bin
 	@for e in ${EXECUTABLES}; do \
 		rm -f ${DESTDIR}${PREFIX}/bin/"$$e"; \
