@@ -1,4 +1,4 @@
-# Checkout build: dotfiles pins fresh clones; local edits are included intentionally.
+# Checkout build: dotfiles clones retained-terminal; local edits are included intentionally.
 pkgname=vis-retained-terminal
 pkgver=0.9.r501.g254329d9
 pkgrel=3

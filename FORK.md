@@ -18,12 +18,11 @@ remain in dotfiles. There is no nnn-specific protocol in the native code.
 
 The dotfiles installer now ensures `vis-retained-terminal` is installed. If it
 is missing, it uses a checkout beside dotfiles (`../vis`). If that path is absent,
-it clones the public fork and checks out the revision pinned in the installer.
+it clones the latest `retained-terminal` branch of the public fork.
 Existing paths/checkouts are never overwritten, reset or pulled automatically.
 The package is built with makepkg as the user; sudo is only used by pacman.
-Existing packages are not rebuilt automatically. To update a pinned detached
-checkout, explicitly switch to `retained-terminal`, review/fetch the desired
-changes, and run `makepkg -fsi`. Dotfiles no longer carries native source or
+Existing packages are not rebuilt automatically. To update a checkout, explicitly
+review/fetch the desired changes on `retained-terminal` and run `makepkg -fsi`. Dotfiles no longer carries native source or
 patch copies; this repository is their source of truth.
 
 ## Arch package
@@ -65,9 +64,9 @@ reclassify them as dependencies.
 
 A locally built package is not an automatic update source. Rebuild after source
 or ABI changes; publish/sign versions through a package repository if automatic
-updates are wanted later. Dotfiles pins the Git commit for fresh bootstrap
-clones; existing development checkouts intentionally build their current files.
-A commit pin is not a maintainer signature. For distributing binary packages,
+updates are wanted later. Fresh dotfiles bootstrap clones follow the latest
+`retained-terminal` branch; existing development checkouts intentionally build
+their current files. For distributing binary packages,
 build a reviewed clean revision and sign it under the target repository policy.
 Never publish a package built from unintended untracked files.
 
